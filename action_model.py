@@ -8,6 +8,8 @@ import torch.nn.functional as F
 from torchvision import models, transforms
 from datetime import datetime
 from torchvision.models import mobilenet_v2, MobileNet_V2_Weights
+from torch.quantization import quantize_dynamic
+from torch.serialization import add_safe_globals, safe_globals
 
 try:
     from ucf101_config import UCF101_CLASSES
@@ -91,21 +93,49 @@ def preprocess_frames(frames, seq_len=16, resize=(112, 112), augment=False):
     return frames_tensor
 
 
-def load_action_model(model_path="best_model.pt", device='cpu',
-                      num_classes=5, hidden_size=128):
+def load_action_model(model_path="model_oas\\best_model.pt", device="cpu",
+                      num_classes=5, hidden_size=128, quantized=False):
     if not os.path.exists(model_path):
         print(f"[ERROR] Model file not found: {model_path}")
         return None
-    model = CNN_GRU(num_classes=num_classes, hidden_size=hidden_size)
-    checkpoint = torch.load(model_path, map_location=device)
-    model.load_state_dict(checkpoint)
+
+    from torch.serialization import add_safe_globals
+    add_safe_globals([CNN_GRU, torch.ScriptObject])  # allow safe unpickling
+
+    checkpoint = torch.load(model_path, map_location=device, weights_only=False)
+
+    # Case 1: full model saved with torch.save(model, ...)
+    if isinstance(checkpoint, nn.Module):
+        model = checkpoint
+        print("[INFO] Loaded full model object directly")
+
+    # Case 2: only state_dict was saved
+    elif isinstance(checkpoint, dict):
+        model = CNN_GRU(num_classes=num_classes, hidden_size=hidden_size)
+        if quantized:
+            model = quantize_dynamic(
+                model,
+                {torch.nn.Linear, torch.nn.GRU},
+                dtype=torch.qint8
+            )
+            print("[INFO] Applied dynamic quantization")
+        try:
+            model.load_state_dict(checkpoint)
+        except RuntimeError as e:
+            print(f"[WARNING] Could not fully load model: {e}")
+            print("[INFO] Attempting to load with strict=False")
+            model.load_state_dict(checkpoint, strict=False)
+
+    else:
+        raise TypeError(f"Unsupported checkpoint type: {type(checkpoint)}")
+
     model.to(device)
     model.eval()
-    print(f"[INFO] Loaded model from {model_path} on {device}")
+    print(f"[INFO] Loaded {'quantized ' if quantized else ''}model from {model_path} on {device}")
     return model
 
 
-def predict_action(model, frames_tensor, label_map_path="label_map.json", device="cpu", top_k=3):
+def predict_action(model, frames_tensor, label_map_path="model_oas\\label_map.json", device="cpu", top_k=3):
     if model is None:
         return {"action": "Model not loaded", "confidence": 0.0, "top_predictions": []}
 

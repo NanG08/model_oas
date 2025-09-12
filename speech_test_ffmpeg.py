@@ -10,7 +10,7 @@ from datetime import datetime
 SAMPLE_RATE = 16000
 SetLogLevel(0)
 
-MODEL_PATH = "vosk-model-small-en-in-0.4"
+MODEL_PATH = "model_oas\\vosk-model-small-en-in-0.4"
 if not os.path.isdir(MODEL_PATH):
     raise RuntimeError(f"Model not found at {MODEL_PATH}. Please unzip it.")
 

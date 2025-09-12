@@ -195,7 +195,7 @@ class FusionCompanion:
             self.det_model = YOLO(YOLO_MODEL)
             self.logger.log_system_event("INIT", f"Object detection model loaded: {YOLO_MODEL}")
             
-            self.action_model = load_action_model("best_model.pt", device=self.device, num_classes=5, hidden_size=128)
+            self.action_model = load_action_model("model_oas\\best_model_quantized.pt", device=self.device, num_classes=5, hidden_size=128)
             if self.action_model:
                 self.logger.log_system_event("INIT", "Action recognition model loaded successfully")
             else:
